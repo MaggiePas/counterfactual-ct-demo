@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counterfactual synthetic CT scans demo</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    --bg:#0e1113; --panel:#171b1e; --edge:#2a3136; --ink:#e7edf0; --mut:#93a1a8;
+    --pe1:#1F6F6F; --pe2:#4FA3A3; --ich1:#3C60DC; --intended:#D62828; --accent:#4FA3A3;
+    --cross:rgba(90,235,235,.92);
+  }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:18px;padding:10px 16px;border-bottom:1px solid var(--edge);background:var(--panel)}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+  main{display:grid;grid-template-columns:290px 1fr;height:calc(100vh - 49px)}
+  aside{border-right:1px solid var(--edge);overflow:auto;padding:12px;background:var(--panel)}
+  .seg{display:flex;gap:6px;margin-bottom:12px}
+  .seg button{flex:1;padding:7px;border:1px solid var(--edge);background:transparent;color:var(--mut);border-radius:7px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#08110f;border-color:transparent;font-weight:600}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);margin:6px 0 6px}
+  /* sidebar tree */
+  .node{margin-bottom:2px}
+  .vol{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .vol:hover{background:var(--edge)} .vol.open{background:var(--edge)}
+  .vol .caret{color:var(--mut);font-size:10px;width:10px;transition:transform .12s;display:inline-block}
+  .vol.open .caret{transform:rotate(90deg)}
+  .vol .pid{font-weight:600;font-size:13px}
+  .vol .cnt{color:var(--mut);font-size:11px;margin-left:auto}
+  .children{margin:3px 0 6px 14px;padding-left:8px;border-left:1px solid var(--edge);display:none}
+  .node.open .children{display:block}
+  .cf{padding:5px 8px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--ink);border:1px solid transparent}
+  .cf:hover{background:var(--edge)} .cf.on{background:var(--edge);border-color:var(--accent)}
+  .cf small{color:var(--mut)}
+  .cf.neg{border-style:dashed;border-color:var(--edge);color:var(--mut);margin-top:3px}
+  .cf.neg.on{color:var(--ink);border-color:var(--accent)}
+  section{overflow:auto;padding:14px}
+  .toggles{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 12px;align-items:center}
+  .tog{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:13px}
+  .sw{width:13px;height:13px;border-radius:3px;border:1px solid #0006}
+  .viewer{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;position:relative;min-height:120px}
+  .pane{background:#000;border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+  .pane h4{margin:0;padding:6px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);background:var(--panel);border-bottom:1px solid var(--edge);display:flex;justify-content:space-between}
+  .pane h4 .pos{color:var(--ink);font-weight:400;text-transform:none;letter-spacing:0}
+  .pane.active{box-shadow:0 0 0 2px var(--accent) inset}          /* the view the arrow keys drive */
+  .pane.active h4{color:var(--accent)}
+  .pane.active h4::before{content:"↑↓ ";font-weight:700}
+  .stack{position:relative;width:100%;aspect-ratio:1/1;background:#000;display:flex;align-items:center;justify-content:center;cursor:crosshair}
+  .stack canvas{position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;pointer-events:none}
+  .cx{position:absolute;pointer-events:auto}          /* draggable, wide invisible hit strip */
+  .cx.v{width:11px;margin-left:-5.5px;cursor:col-resize}
+  .cx.h{height:11px;margin-top:-5.5px;cursor:row-resize}
+  .cx::before{content:"";position:absolute;background:var(--cross);box-shadow:0 0 0 .5px rgba(0,0,0,.5)}
+  .cx.v::before{left:50%;transform:translateX(-50%);top:0;bottom:0;width:1px}
+  .cx.h::before{top:50%;transform:translateY(-50%);left:0;right:0;height:1px}
+  .marks{position:relative;height:11px;margin:6px 9px 0}
+  .mk{position:absolute;top:0;transform:translateX(-50%);width:0;height:0;color:#fff;
+     border-left:4px solid transparent;border-right:4px solid transparent;border-top:7px solid currentColor;cursor:pointer}
+  .mk:hover{filter:brightness(1.3)}
+  .mkbar{position:absolute;top:9px;height:2px;border-radius:1px;opacity:.75}
+  .warm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mut);
+     background:rgba(14,17,19,.55);font-size:12px;z-index:5}
+  .warm::before{content:"";width:16px;height:16px;margin-right:8px;border:2px solid var(--mut);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite}
+  .warm.err{color:#f0a3a3}
+  .warm.err::before{display:none}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .slider{width:100%;padding:4px 9px 8px} .slider input{width:100%;accent-color:var(--accent)}
+  .viewctl{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:0 0 6px;font-size:13px;color:var(--ink)}
+  .viewctl .ctl-group{color:var(--mut);font-weight:600}
+  .viewctl .ctl-note{color:var(--mut);font-weight:400}
+  .viewctl label{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .viewctl select{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:5px;padding:2px 5px}
+  /* legend + controls block, shown UNDER the viewer so the images are the first thing seen */
+  .controls{border-top:1px solid var(--edge);margin-top:16px;padding-top:12px}
+  .controls .lbl{margin:0 0 10px}
+  kbd{display:inline-block;font-family:inherit;font-size:10.5px;font-weight:600;line-height:1;
+     padding:2px 5px;border:1px solid var(--edge);border-bottom-width:2px;border-radius:4px;
+     background:var(--panel);color:var(--ink);vertical-align:middle}
+  .keys{display:flex;flex-wrap:wrap;gap:7px 18px;align-items:center;font-size:12.5px;color:var(--mut);margin:2px 0 0}
+  .keys span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .keys em{font-style:normal;color:var(--accent)}
+  .keys b{color:var(--ink);font-weight:600}
+  .mkleg{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--mut)}
+  .mkleg b{color:var(--intended)}
+  .loupe{position:fixed;width:220px;height:220px;border:2px solid var(--accent);border-radius:10px;
+     overflow:hidden;pointer-events:none;box-shadow:0 6px 20px #000b;z-index:50;display:none;background:#000}
+  .loupe canvas{display:block}
+  .info{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px}
+  .card h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+  .kv b{color:var(--mut);font-weight:500}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
+  .det{background:#14432a;color:#7fe0a4} .miss{background:#4a1d1d;color:#f0a3a3}
+  .impr{white-space:pre-wrap;font-size:13px;color:var(--ink)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Anatomically-constrained counterfactual synthetic CT scans demo</h1>
+</header>
+
+<main id="demo">
+  <aside>
+    <div class="seg" id="disease">
+      <button data-d="PE" class="on">PE</button><button data-d="ICH">ICH</button>
+    </div>
+    <div class="lbl">Source volumes · counterfactuals</div>
+    <div id="tree"></div>
+  </aside>
+  <section>
+    <div class="viewer" id="viewer"></div>
+    <div class="controls">
+      <div class="lbl">Legend &amp; controls</div>
+      <div class="toggles" id="toggles"></div>
+      <div class="viewctl">
+        <label><input type="checkbox" id="magOn" checked> 🔍 Magnifier <kbd>Z</kbd></label>
+        <label>Zoom <select id="magZoom"><option>2</option><option selected>3</option><option>4</option><option>6</option></select>×</label>
+      </div>
+      <div class="viewctl">
+        <span class="ctl-group">Window / Level <span class="ctl-note">(all panes)</span></span>
+        <label title="Window width (contrast)">Window <input id="wlW" type="range" min="1" max="2000" step="1" style="width:96px;vertical-align:middle"> <b id="wlWv" style="display:inline-block;min-width:30px"></b></label>
+        <label title="Window level (brightness)">Level <input id="wlL" type="range" min="-1000" max="1000" step="1" style="width:96px;vertical-align:middle"> <b id="wlLv" style="display:inline-block;min-width:34px"></b></label>
+        <button id="wlReset" style="background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:5px;padding:2px 8px;cursor:pointer">reset</button>
+      </div>
+      <div class="keys">
+        <span><kbd>↑</kbd><kbd>↓</kbd> or <kbd>Shift</kbd>+scroll — move through the <em>highlighted</em> view</span>
+        <span><b>Click</b> a point to recenter all views</span>
+        <span><b>Drag</b> a crosshair to reslice</span>
+        <span><kbd>M</kbd> Mask</span>
+        <span><kbd>Z</kbd> Magnifier</span>
+      </div>
+    </div>
+    <div class="info" id="info"></div>
+  </section>
+</main>
+<div class="loupe" id="loupe"><canvas id="loupeCanvas" width="220" height="220"></canvas></div>
+
+
+<script>
+// Static build: no backend. Each scan is a stack of 8-bit axial slices (WebP sheets) that is
+// decoded into a volume in the browser; slicing, window/level and the mask overlay are all
+// rendered client-side. The display orientation mirrors backend/app.py _orient().
+const DATA = "data";
+const AXES = ["axial","coronal","sagittal"];
+const DETCOLOR = {nnunet:"var(--pe1)", apes:"var(--pe2)", viola:"var(--ich1)"};
+const DETNAME  = {nnunet:"PE-Detector-1", apes:"PE-Detector-2", viola:"ICH-Detector-1"};
+// keys as they appear in rec.detection
+const DETECTION_NAME = {nnunet:"PE-Detector-1", apes:"PE-Detector-2",
+                        viola_detected:"ICH-Detector-1", emm_positive:"ICH-Detector-2"};
+const MASK_RGBA = [214, 40, 40, 150];                // intended lesion: paper red, same alpha as the live demo
+const pretty = v => (v==null||v==="") ? "—" : String(v).replace(/_/g," ");   // near_complete -> near complete
+const ICH_FULL = {IPH:"Intraparenchymal", IVH:"Intraventricular", SAH:"Subarachnoid", SDH:"Subdural", EDH:"Epidural"};
+const ichSubtype = s => s ? String(s).split("+").map(x=>ICH_FULL[x.trim()]||x.trim()).join(" + ") : "—";
+let MAN=null, disease="PE", scan=null, meta=null, V=null;   // V: decoded volume of the selected scan
+let dims={}, idx={}, show={}, MARKS=null;           // idx: {axial:z, coronal:y, sagittal:x}
+let panes={}, crossDrag=null, activeAxis="axial";   // activeAxis = pane the arrow keys step
+const WINDOW_DEFAULT = { PE:{w:700,l:100}, ICH:{w:80,l:40} };   // paper windows
+let winW=700, winL=100;                             // current window width / level (HU)
+const GRAY = new Uint8Array(256);                   // 8-bit code -> display gray for the current W/L
+let selToken=0;
+
+async function boot(){
+  try{
+    const r=await fetch(`${DATA}/manifest.json`); if(!r.ok) throw new Error(r.status);
+    MAN=await r.json();
+  }catch(e){
+    document.getElementById("viewer").innerHTML=`<div class="warm err">Could not load ${DATA}/manifest.json.
+      Serve this folder over HTTP (e.g. <code>python -m http.server</code>) rather than opening the file directly.</div>`;
+    return;
+  }
+  document.querySelectorAll("#disease button").forEach(b=>b.onclick=()=>setDisease(b.dataset.d));
+  window.addEventListener("resize", positionAllCross);
+  window.addEventListener("scroll", hideLoupe, true);    // wheel scrolls the page; drop the magnifier while it does
+  window.addEventListener("keydown", e=>{                 // keyboard shortcuts
+    const t=e.target; if(t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+    const k=e.key.toLowerCase();
+    if(k==="m"){ e.preventDefault(); toggleIntendedKey(); return; }   // M: intended-lesion mask
+    if(k==="z"){ e.preventDefault(); toggleMagnifierKey(); return; }  // Z: magnifier
+    const d = (e.key==="ArrowUp"||e.key==="ArrowRight") ? 1           // arrows step the active pane ±1 slice
+            : (e.key==="ArrowDown"||e.key==="ArrowLeft") ? -1 : 0;
+    if(!d || !panes[activeAxis] || !scan) return;
+    e.preventDefault();
+    idx[activeAxis]=clamp(idx[activeAxis]+d, 0, (dims[activeAxis]||1)-1);
+    panes[activeAxis].slider.value=idx[activeAxis];
+    onScroll(activeAxis);
+  });
+  document.getElementById("magOn").onchange=e=>{ if(!e.target.checked) hideLoupe(); else showLoupeAtHover(); };
+  document.getElementById("wlW").oninput=onWindowInput;
+  document.getElementById("wlL").oninput=onWindowInput;
+  document.getElementById("wlReset").onclick=()=>{ const d=WINDOW_DEFAULT[disease]||WINDOW_DEFAULT.PE;
+    setWindowVals(d.w,d.l); renderAll(); };
+  // deep link: index.html#<scan id> (e.g. #ich2_cf1) opens that scan
+  const want=decodeURIComponent(location.hash.slice(1));
+  const hit=want && findRec(want);
+  setDisease(hit ? hit.disease : "PE", hit ? want : null);
+  window.addEventListener("hashchange",()=>{          // edited/pasted #<scan id> in an open tab
+    const id=decodeURIComponent(location.hash.slice(1)), r=id && id!==scan && findRec(id);
+    if(r) setDisease(r.disease, id);
+  });
+}
+function findRec(id){
+  for(const d of ["PE","ICH"]) for(const g of (MAN[d]||[]))
+    for(const r of [...g.counterfactuals, g.no_lesion]) if(r && r.id===id) return r;
+  return null;
+}
+function setDisease(d, openId){
+  disease=d; document.querySelectorAll("#disease button").forEach(x=>x.classList.toggle("on",x.dataset.d===d));
+  renderTree(openId);
+}
+
+// ---------- sidebar tree ----------
+function renderTree(openId){
+  const tree=document.getElementById("tree"); tree.innerHTML="";
+  let target=null;
+  MAN[disease].forEach((g,gi)=>{
+    const node=document.createElement("div"); node.className="node";
+    const head=document.createElement("div"); head.className="vol";
+    head.innerHTML=`<span class="caret">▶</span><span class="pid">${g.label}</span>`+
+                   `<span class="cnt">${g.counterfactuals.length} CF</span>`;
+    const kids=document.createElement("div"); kids.className="children";
+    const add=(r,el)=>{ el.onclick=e=>{e.stopPropagation(); selectScan(r,el);}; kids.appendChild(el);
+                        if(r.id===openId) target={node,head,el}; };
+    g.counterfactuals.forEach(cf=>{
+      const p=cf.intended_props||{};
+      const desc = disease==="PE" ? `${pretty(p.location)} · ${pretty(p.severity_category||p.severity)}`
+                                  : `${(p.subtype||"")} · ${fmtVol(p)}`;
+      const it=document.createElement("div"); it.className="cf";
+      it.innerHTML=`${cf.label} <small>${desc}</small>`;
+      add(cf,it);
+    });
+    if(g.no_lesion){
+      const it=document.createElement("div"); it.className="cf neg";
+      it.textContent="Synthetic — no lesion";
+      add(g.no_lesion,it);
+    }
+    head.onclick=()=>{
+      const wasOpen=node.classList.contains("open");
+      tree.querySelectorAll(".node").forEach(n=>n.classList.remove("open"));
+      tree.querySelectorAll(".vol").forEach(v=>v.classList.remove("open"));
+      if(!wasOpen){ node.classList.add("open"); head.classList.add("open");
+        const first=kids.querySelector(".cf"); first && first.click(); }
+    };
+    node.appendChild(head); node.appendChild(kids); tree.appendChild(node);
+  });
+  if(target){ target.node.classList.add("open"); target.head.classList.add("open"); target.el.click(); return; }
+  const n0=tree.querySelector(".node"), h0=tree.querySelector(".vol");
+  n0 && n0.classList.add("open"); h0 && h0.classList.add("open");
+  const first=tree.querySelector(".cf"); first && first.click();
+}
+function fmtVol(p){ const v=p.volume_ml??p.ich_volume_ml; return v==null?"":(`${(+v).toFixed(1)} mL`); }
+
+// ---------- scan selection ----------
+async function selectScan(rec,node){
+  const token=++selToken;
+  scan=rec.id; meta=rec; V=null;
+  document.querySelectorAll("#tree .cf").forEach(x=>x.classList.remove("on"));
+  node.classList.add("on");
+  history.replaceState(null,"",`#${rec.id}`);
+  dims = rec.dims;
+  // Open ON the intended lesion (best_slice) so the lesion + mask are visible immediately.
+  const bs = rec.best_slice || {};
+  const pick = ax => { const v = bs[ax]; return (Number.isFinite(v) && v>=0 && v<dims[ax]) ? v : dims[ax]>>1; };
+  idx = {axial: pick("axial"), coronal: pick("coronal"), sagittal: pick("sagittal")};
+  const wd=WINDOW_DEFAULT[disease]||WINDOW_DEFAULT.PE; setWindowVals(wd.w, wd.l);   // reset window to disease default
+  MARKS=rec.marks||null;
+  buildToggles(); buildViewer(); renderInfo();
+  const warm=document.getElementById("warm");
+  try{
+    const vol=await loadVolume(rec, f=>{ if(token===selToken && warm) warm.textContent=`loading scan… ${Math.round(100*f)}%`; });
+    if(token!==selToken) return;             // a newer selection superseded this one
+    V=vol; warm && warm.remove();
+    renderAll(); positionAllCross(); AXES.forEach(drawMarks);
+    document.body.dataset.ready=rec.id;      // (used by automated checks)
+  }catch(e){
+    if(token!==selToken) return;
+    if(warm){ warm.classList.add("err"); warm.textContent=`Could not load this scan (${e.message||e}).`; }
+    document.body.dataset.error=String(e.message||e);
+  }
+}
+
+function buildToggles(){
+  const t=document.getElementById("toggles"); t.innerHTML="";
+  show={};
+  if(meta.kind!=="no_lesion"){
+    // detector overlays are not shown (predictions are small/sporadic); the per-detector
+    // detected/missed status is in the info card below.
+    show.intended=true;
+    t.appendChild(mkTog("intended","Intended-lesion mask","var(--intended)","M"));
+    const mk=document.createElement("span"); mk.className="mkleg"; mk.innerHTML='<b>▲</b> lesion slices';
+    t.appendChild(mk);
+  }
+}
+function mkTog(key,label,col,keyhint){
+  const w=document.createElement("label"); w.className="tog"; w.dataset.key=key;
+  const kb = keyhint ? ` <kbd>${keyhint}</kbd>` : "";
+  w.innerHTML=`<input type="checkbox" ${show[key]?"checked":""}><span class="sw" style="background:${col}"></span>${label}${kb}`;
+  w.querySelector("input").onchange=e=>{show[key]=e.target.checked; toggleOverlay(key);};
+  return w;
+}
+function toggleIntendedKey(){
+  if(!scan || !meta || meta.kind==="no_lesion") return;   // no intended mask on negative controls
+  const cb=document.querySelector('#toggles .tog[data-key="intended"] input'); if(!cb) return;
+  cb.checked=!cb.checked; show.intended=cb.checked; toggleOverlay("intended");
+}
+function toggleMagnifierKey(){
+  const c=document.getElementById("magOn"); c.checked=!c.checked;
+  if(!c.checked) hideLoupe(); else showLoupeAtHover();
+}
+
+// ---------- volume loading (WebP/PNG sheets -> Uint8Array) ----------
+const _vcache=new Map();                             // id -> Promise<volume>; keeps the 2 most recent
+function loadVolume(rec,onProg){
+  if(_vcache.has(rec.id)){ const p=_vcache.get(rec.id); _vcache.delete(rec.id); _vcache.set(rec.id,p); return p; }
+  const p=_loadVolume(rec,onProg).catch(e=>{ _vcache.delete(rec.id); throw e; });
+  _vcache.set(rec.id,p);
+  while(_vcache.size>2) _vcache.delete(_vcache.keys().next().value);
+  return p;
+}
+async function decodeSheet(url){
+  const res=await fetch(url); if(!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  const blob=await res.blob();
+  let src;
+  try{ src=await createImageBitmap(blob,{colorSpaceConversion:"none",premultiplyAlpha:"none"}); }
+  catch(_){ src=await new Promise((ok,bad)=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=bad; im.src=URL.createObjectURL(blob); }); }
+  const w=src.width, h=src.height, c=document.createElement("canvas"); c.width=w; c.height=h;
+  const ctx=c.getContext("2d",{willReadFrequently:true}); ctx.drawImage(src,0,0);
+  const d=ctx.getImageData(0,0,w,h).data; if(src.close) src.close();
+  return {d,w};
+}
+// copy tile t of a decoded sheet (grid g=[cols,rows], tile bx x by) into slice z of dst (x fastest)
+function untile(sheet,g,t,bx,by,dst,z,bin){
+  const {d,w}=sheet, tr=Math.floor(t/g[0]), tc=t%g[0];
+  for(let y=0;y<by;y++){
+    let s=((tr*by+y)*w + tc*bx)*4, o=bx*(y+by*z);
+    if(bin) for(let x=0;x<bx;x++,s+=4) dst[o+x]=d[s]>127?1:0;
+    else    for(let x=0;x<bx;x++,s+=4) dst[o+x]=d[s];
+  }
+}
+async function _loadVolume(rec,onProg){
+  const X=rec.dims.sagittal, Y=rec.dims.coronal, Z=rec.dims.axial;
+  const vol=new Uint8Array(X*Y*Z), jobs=[];
+  const g=rec.vol.grid, per=g[0]*g[1];
+  for(let s=0;s<rec.vol.sheets;s++) jobs.push(async()=>{
+    const sh=await decodeSheet(`${DATA}/${rec.id}/v${s}.webp`);
+    for(let t=0;t<per && s*per+t<Z;t++) untile(sh,g,t,X,Y,vol,s*per+t,false);
+  });
+  let mask=null, mb=null;
+  if(rec.mask){
+    mb=rec.mask.bbox; const bx=mb[3]-mb[0], by=mb[4]-mb[1], bz=mb[5]-mb[2];
+    mask=new Uint8Array(bx*by*bz); const mg=rec.mask.grid, mper=mg[0]*mg[1];
+    for(let s=0;s<rec.mask.sheets;s++) jobs.push(async()=>{
+      const sh=await decodeSheet(`${DATA}/${rec.id}/m${s}.png`);
+      for(let t=0;t<mper && s*mper+t<bz;t++) untile(sh,mg,t,bx,by,mask,s*mper+t,true);
+    });
+  }
+  let done=0; const total=jobs.length, queue=jobs.slice();
+  const worker=async()=>{ while(queue.length){ await queue.shift()(); onProg && onProg(++done/total); } };
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  return {vol,mask,mb,X,Y,Z};
+}
+
+// ---------- viewer ----------
+function sliceSize(ax){                    // [width, height] of the displayed slice
+  if(ax==="axial") return [dims.sagittal, dims.coronal];
+  if(ax==="coronal") return [dims.sagittal, dims.axial];
+  return [dims.coronal, dims.axial];       // sagittal
+}
+function buildViewer(){
+  const v=document.getElementById("viewer"); v.innerHTML=""; panes={};
+  const warm=document.createElement("div"); warm.className="warm"; warm.id="warm"; warm.textContent="loading scan…"; v.appendChild(warm);
+  AXES.forEach(ax=>{
+    const n=dims[ax]||1;
+    const pane=document.createElement("div"); pane.className="pane";
+    pane.innerHTML=`<h4>${ax}<span class="pos" id="pos-${ax}"></span></h4>
+      <div class="stack" id="st-${ax}"></div>
+      <div class="marks" id="mk-${ax}"></div>
+      <div class="slider"><input type="range" min="0" max="${n-1}" value="${idx[ax]}" id="sl-${ax}"></div>`;
+    v.appendChild(pane);
+    const stack=pane.querySelector(".stack");
+    const [w,h]=sliceSize(ax);
+    const base=document.createElement("canvas"); base.width=w; base.height=h; stack.appendChild(base);
+    const ov={};
+    Object.keys(show).forEach(key=>{ const o=document.createElement("canvas"); o.width=w; o.height=h; o.hidden=!show[key]; ov[key]=o; stack.appendChild(o); });
+    const cv=document.createElement("div"); cv.className="cx v";
+    const ch=document.createElement("div"); ch.className="cx h";
+    cv.addEventListener("pointerdown",e=>startCrossDrag(ax,"v",e));
+    ch.addEventListener("pointerdown",e=>startCrossDrag(ax,"h",e));
+    stack.appendChild(cv); stack.appendChild(ch);
+    const slider=pane.querySelector("input");
+    panes[ax]={pane,base,ov,cross:{v:cv,h:ch},stack,slider,pos:pane.querySelector(`#pos-${ax}`),marks:pane.querySelector(`#mk-${ax}`)};
+    slider.oninput=e=>{ idx[ax]=+e.target.value; onScroll(ax); };
+    slider.addEventListener("focus",()=>setActive(ax));
+    // plain wheel scrolls the page (expected); Shift+wheel scrubs slices
+    stack.addEventListener("wheel",e=>{ if(!e.shiftKey) return;
+      e.preventDefault(); setActive(ax);
+      idx[ax]=clamp(idx[ax]+(e.deltaY>0?1:-1),0,(dims[ax]||1)-1); slider.value=idx[ax]; onScroll(ax); },{passive:false});
+    stack.addEventListener("click",e=>{ setActive(ax); onClickPane(ax,e); });
+    stack.addEventListener("mouseenter",e=>{ setActive(ax); hover={ax,cx:e.clientX,cy:e.clientY}; });
+    stack.addEventListener("mousemove",e=>drawLoupe(ax,e));
+    stack.addEventListener("mouseleave",leaveLoupe);
+    updatePos(ax);
+  });
+  setActive(activeAxis);
+  positionAllCross();
+}
+function setActive(ax){
+  activeAxis=ax;
+  AXES.forEach(a=>{ const P=panes[a]; if(P&&P.pane) P.pane.classList.toggle("active", a===ax); });
+}
+function updatePos(ax){ const P=panes[ax]; if(P&&P.pos) P.pos.textContent=`${idx[ax]+1} / ${dims[ax]}`; }
+
+// ---- slice rendering: display (row r, col c) -> voxel (x,y,z); vol index = x + X*(y + Y*z) ----
+// axial:    (x=c,     y=Y-1-r, z=k)      == rot90
+// coronal:  (x=X-1-c, y=k,     z=Z-1-r)  == fliplr(rot90)
+// sagittal: (x=k,     y=Y-1-c, z=Z-1-r)  == fliplr(rot90)
+function renderBase(ax){
+  const P=panes[ax]; if(!P||!V) return;
+  const {vol,X,Y,Z}=V, XY=X*Y, k=idx[ax], [w,h]=sliceSize(ax);
+  const ctx=P.base.getContext("2d"), im=ctx.createImageData(w,h), o=im.data;
+  let p=0;
+  for(let r=0;r<h;r++){
+    let i, step;
+    if(ax==="axial"){ i=XY*k + X*(Y-1-r); step=1; }
+    else if(ax==="coronal"){ i=XY*(Z-1-r) + X*k + (X-1); step=-1; }
+    else { i=XY*(Z-1-r) + X*(Y-1) + k; step=-X; }
+    for(let c=0;c<w;c++,i+=step,p+=4){ const g=GRAY[vol[i]]; o[p]=g; o[p+1]=g; o[p+2]=g; o[p+3]=255; }
+  }
+  ctx.putImageData(im,0,0);
+}
+function renderMask(ax){
+  const P=panes[ax]; if(!P) return; const cv=P.ov.intended; if(!cv) return;
+  const ctx=cv.getContext("2d"); ctx.clearRect(0,0,cv.width,cv.height);
+  if(!V||!V.mask||!show.intended) return;
+  const {mask,mb,X,Y,Z}=V, [x0,y0,z0,x1,y1,z1]=mb, bx=x1-x0, by=y1-y0, k=idx[ax];
+  // the fixed coordinate must fall inside the lesion bounding box
+  if(ax==="axial" ? (k<z0||k>=z1) : ax==="coronal" ? (k<y0||k>=y1) : (k<x0||k>=x1)) return;
+  const [w,h]=sliceSize(ax), im=ctx.createImageData(w,h), o=im.data;
+  let any=false;
+  for(let r=0;r<h;r++) for(let c=0;c<w;c++){
+    let x,y,z;
+    if(ax==="axial"){ x=c; y=Y-1-r; z=k; }
+    else if(ax==="coronal"){ x=X-1-c; y=k; z=Z-1-r; }
+    else { x=k; y=Y-1-c; z=Z-1-r; }
+    if(x<x0||x>=x1||y<y0||y>=y1||z<z0||z>=z1) continue;
+    if(mask[(x-x0) + bx*((y-y0) + by*(z-z0))]){
+      const p=4*(r*w+c); o[p]=MASK_RGBA[0]; o[p+1]=MASK_RGBA[1]; o[p+2]=MASK_RGBA[2]; o[p+3]=MASK_RGBA[3]; any=true;
+    }
+  }
+  if(any) ctx.putImageData(im,0,0);
+}
+function renderPane(ax){ renderBase(ax); renderMask(ax); updatePos(ax); }
+function renderAll(){ AXES.forEach(renderPane); refreshLoupe(); }
+// coalesce redraws to one per animation frame (slider/arrow/drag events can fire faster)
+const _dirty=new Set(); let _raf=0;
+function scheduleRender(ax){
+  _dirty.add(ax); updatePos(ax);
+  if(!_raf) _raf=requestAnimationFrame(()=>{ _raf=0; const s=[..._dirty]; _dirty.clear(); s.forEach(renderPane); refreshLoupe(); });
+}
+
+// ---------- hover magnifier ----------
+let loupePos=null;   // last cursor position while the loupe was drawn (for slice-change redraws)
+let hover=null;      // last cursor position over ANY pane, tracked even when the magnifier is off
+function hideLoupe(){ document.getElementById("loupe").style.display="none"; loupePos=null; }
+function drawLoupe(ax,e){ hover={ax,cx:e.clientX,cy:e.clientY}; drawLoupeAt(ax, e.clientX, e.clientY); }
+function leaveLoupe(){ hover=null; hideLoupe(); }
+function refreshLoupe(){ if(loupePos) drawLoupeAt(loupePos.ax, loupePos.cx, loupePos.cy); }
+function showLoupeAtHover(){ if(hover) drawLoupeAt(hover.ax, hover.cx, hover.cy); }
+function drawLoupeAt(ax,cx,cy){
+  if(!document.getElementById("magOn").checked){ hideLoupe(); return; }
+  const P=panes[ax]; if(!P||!V) return; const base=P.base;
+  const r=base.getBoundingClientRect();
+  const fx=(cx-r.left)/r.width, fy=(cy-r.top)/r.height;
+  if(fx<0||fx>1||fy<0||fy>1){ hideLoupe(); return; }
+  loupePos={ax,cx,cy};
+  const zoom=+document.getElementById("magZoom").value||3;
+  const L=document.getElementById("loupe"), c=document.getElementById("loupeCanvas"), ctx=c.getContext("2d");
+  // Zoom is relative to the DISPLAYED pane size, so "N×" means N× what's on screen on any monitor.
+  const nw=base.width, nh=base.height;
+  const sw=c.width*nw/(zoom*r.width), sh=c.height*nh/(zoom*r.height);
+  const sx=fx*nw-sw/2, sy=fy*nh-sh/2;
+  ctx.imageSmoothingEnabled=false; ctx.fillStyle="#000"; ctx.fillRect(0,0,c.width,c.height);
+  const layers=[base]; Object.keys(P.ov).forEach(k=>{ if(show[k]&&!P.ov[k].hidden) layers.push(P.ov[k]); });
+  layers.forEach(img=>{ try{ ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height); }catch(_){} });
+  ctx.strokeStyle="rgba(120,220,220,.7)"; ctx.lineWidth=1; const m=c.width/2;
+  ctx.beginPath(); ctx.moveTo(m-9,m); ctx.lineTo(m+9,m); ctx.moveTo(m,m-9); ctx.lineTo(m,m+9); ctx.stroke();
+  L.style.display="block";
+  let lx=cx+24, ly=cy+24;
+  if(lx+230>innerWidth) lx=cx-244;
+  if(ly+230>innerHeight) ly=cy-244;
+  L.style.left=lx+"px"; L.style.top=ly+"px";
+}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+// ---------- slider markers (slices containing the intended lesion) ----------
+function drawMarks(ax){
+  const P=panes[ax]; if(!P) return;
+  const track=P.marks; track.innerHTML=""; if(!MARKS) return;
+  const n=(dims[ax]||1)-1||1;
+  ["intended"].forEach(key=>{
+    if(!MARKS[key]) return;
+    const runs=(MARKS[key]||{})[ax]||[]; const col="var(--intended)";
+    runs.forEach(([s,e])=>{
+      if(e>s){ const bar=document.createElement("div"); bar.className="mkbar";
+        bar.style.left=(100*s/n)+"%"; bar.style.width=Math.max(1.2,100*(e-s)/n)+"%"; bar.style.background=col;
+        track.appendChild(bar); }
+      const mk=document.createElement("div"); mk.className="mk"; mk.style.left=(100*(s+e)/2/n)+"%"; mk.style.color=col;
+      mk.title=`Intended lesion: slices ${s+1}–${e+1}`;
+      mk.onclick=()=>{ idx[ax]=Math.round((s+e)/2); P.slider.value=idx[ax]; onScroll(ax); };
+      track.appendChild(mk);
+    });
+  });
+}
+
+function onScroll(ax){ scheduleRender(ax); positionAllCross(); }
+function onClickPane(ax,e){     // click sets the two in-plane coords -> jump the other two panes
+  const r=panes[ax].base.getBoundingClientRect();
+  if(!r.width||!r.height) return;
+  let fx=(e.clientX-r.left)/r.width, fy=(e.clientY-r.top)/r.height;
+  fx=clamp(fx,0,1); fy=clamp(fy,0,1);
+  const X=dims.sagittal-1, Y=dims.coronal-1, Z=dims.axial-1;
+  const setIdx=(a,val)=>{ val=clamp(Math.round(val),0,dims[a]-1); if(idx[a]!==val){idx[a]=val; panes[a].slider.value=val; scheduleRender(a);} };
+  if(ax==="axial"){ setIdx("sagittal",fx*X); setIdx("coronal",(1-fy)*Y); }
+  else if(ax==="coronal"){ setIdx("sagittal",(1-fx)*X); setIdx("axial",(1-fy)*Z); }
+  else { setIdx("coronal",(1-fx)*Y); setIdx("axial",(1-fy)*Z); }
+  positionAllCross();
+}
+
+// ---- window/level: rebuild the 256-entry code -> gray table, then redraw (no network) ----
+function rebuildGray(){
+  const lut=(MAN&&MAN.lut&&MAN.lut[disease])||[], lo=winL-winW/2, hi=winL+winW/2;
+  for(let c=0;c<256;c++){ const t=(lut[c]-lo)/(hi-lo); GRAY[c]=t<=0?0:t>=1?255:(t*255)|0; }
+}
+function setWindowVals(w,l){
+  winW=Math.max(1,Math.round(w)); winL=Math.round(l);
+  const g=id=>document.getElementById(id);
+  g("wlW").value=winW; g("wlL").value=winL; g("wlWv").textContent=winW; g("wlLv").textContent=winL;
+  rebuildGray();
+}
+function onWindowInput(){
+  setWindowVals(+document.getElementById("wlW").value, +document.getElementById("wlL").value);
+  AXES.forEach(scheduleRender);
+}
+function toggleOverlay(key){
+  AXES.forEach(ax=>{ const o=panes[ax]&&panes[ax].ov[key]; if(!o) return;
+    o.hidden=!show[key]; if(show[key]) renderMask(ax); });
+  refreshLoupe();
+}
+
+// crosshair: focus voxel (x=sagittal, y=coronal, z=axial) -> fractional position per pane
+function crossFrac(ax){
+  const X=dims.sagittal-1||1, Y=dims.coronal-1||1, Z=dims.axial-1||1;
+  const x=idx.sagittal, y=idx.coronal, z=idx.axial;
+  if(ax==="axial")   return {fx:x/X,          fy:(Y-y)/Y};
+  if(ax==="coronal") return {fx:(X-x)/X,      fy:(Z-z)/Z};
+  return               {fx:(Y-y)/Y,          fy:(Z-z)/Z};   // sagittal
+}
+function positionAllCross(){
+  AXES.forEach(ax=>{
+    const P=panes[ax]; if(!P) return;
+    const r=P.base.getBoundingClientRect(), sr=P.stack.getBoundingClientRect();
+    if(!r.width||!r.height){ P.cross.v.style.display=P.cross.h.style.display="none"; return; }
+    P.cross.v.style.display=P.cross.h.style.display="block";
+    const {fx,fy}=crossFrac(ax);
+    const left=(r.left-sr.left)+fx*r.width, top=(r.top-sr.top)+fy*r.height;
+    Object.assign(P.cross.v.style,{left:left+"px", top:(r.top-sr.top)+"px", height:r.height+"px"});
+    Object.assign(P.cross.h.style,{top:top+"px", left:(r.left-sr.left)+"px", width:r.width+"px"});
+  });
+}
+// drag a crosshair line -> re-slice the orthogonal view it controls (Slicer-style)
+function startCrossDrag(ax,orient,e){
+  e.preventDefault(); e.stopPropagation(); crossDrag={ax,orient}; hideLoupe();
+  window.addEventListener("pointermove",crossDragMove);
+  window.addEventListener("pointerup",endCrossDrag,{once:true});
+  crossDragMove(e);
+}
+function crossDragMove(e){
+  if(!crossDrag) return;
+  const {ax,orient}=crossDrag, P=panes[ax]; if(!P) return;
+  const r=P.base.getBoundingClientRect(); if(!r.width) return;
+  const fx=clamp((e.clientX-r.left)/r.width,0,1), fy=clamp((e.clientY-r.top)/r.height,0,1);
+  const X=dims.sagittal-1, Y=dims.coronal-1, Z=dims.axial-1;
+  let target,val;
+  if(orient==="v"){                                   // vertical line -> in-plane horizontal coord
+    if(ax==="axial"){target="sagittal"; val=fx*X;}
+    else if(ax==="coronal"){target="sagittal"; val=(1-fx)*X;}
+    else {target="coronal"; val=(1-fx)*Y;}
+  }else{                                              // horizontal line -> in-plane vertical coord
+    if(ax==="axial"){target="coronal"; val=(1-fy)*Y;}
+    else {target="axial"; val=(1-fy)*Z;}
+  }
+  val=clamp(Math.round(val),0,dims[target]-1);
+  if(idx[target]!==val){ idx[target]=val; panes[target].slider.value=val; scheduleRender(target); }
+  positionAllCross();
+}
+function endCrossDrag(){ crossDrag=null; window.removeEventListener("pointermove",crossDragMove); }
+
+// ---------- info ----------
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function renderInfo(){
+  const p=meta.intended_props||{}, r=meta.ratings||{}, det=meta.detection||{};
+  const RMAX = disease==="PE" ? {a:2,r:2} : {a:2,r:3};   // ICH realism is 0-3, rest 0-2
+  const rs=(v,m)=> v==null ? "—" : `${+v} / ${m}`;
+  const props = meta.kind==="no_lesion" ? "<i>No lesion (synthetic negative control).</i>" :
+    (disease==="PE"
+      ? `<div class="kv"><b>Location</b><span>${pretty(p.location)}</span><b>Severity</b><span>${pretty(p.severity_category||p.severity)}</span><b>Occlusion</b><span>${pretty(p.occlusion)}</span><b>Burden</b><span>${pretty(p.burden)}</span></div>`
+      : `<div class="kv"><b>Subtype</b><span>${ichSubtype(p.subtype)}</span><b>Volume</b><span>${fmtVol(p)||"—"}</span></div>`);
+  const detrows = Object.keys(det).filter(k=>DETECTION_NAME[k]).map(k=>
+    `<b>${DETECTION_NAME[k]}</b><span class="pill ${det[k]?"det":"miss"}">${det[k]?"detected":"missed"}</span>`).join("");
+  const dtext=(meta.diagnosis||"").trim();                 // human reader's free-text description
+  const diag = dtext ? esc(dtext) : "No Description Available";
+  document.getElementById("info").innerHTML = `
+    <div class="card"><h3>Conditioning impression</h3><div class="impr">${meta.impression?esc(meta.impression):"—"}</div></div>
+    <div class="card"><h3>Intended lesion</h3>${props}
+      ${meta.kind!=="no_lesion"?`<h3 style="margin-top:12px">Detection</h3><div class="kv">${detrows}</div>`:""}</div>
+    <div class="card"><h3>Radiologist rating</h3><div class="kv">
+      <b>Anatomical Consistency</b><span>${rs(r.anatomical_quality, RMAX.a)}</span>
+      <b>Overall Realism</b><span>${rs(r.overall_realism, RMAX.r)}</span></div></div>
+    <div class="card"><h3>Human Rater's Detected Lesion Description</h3><div class="impr">${diag}</div></div>`;
+}
+boot();
+</script>
+</body></html>
