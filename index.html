@@ -412,9 +412,9 @@ function setActive(ax){
 function updatePos(ax){ const P=panes[ax]; if(P&&P.pos) P.pos.textContent=`${idx[ax]+1} / ${dims[ax]}`; }
 
 // ---- slice rendering: display (row r, col c) -> voxel (x,y,z); vol index = x + X*(y + Y*z) ----
-// axial:    (x=c,     y=Y-1-r, z=k)      == rot90
-// coronal:  (x=X-1-c, y=k,     z=Z-1-r)  == fliplr(rot90)
-// sagittal: (x=k,     y=Y-1-c, z=Z-1-r)  == fliplr(rot90)
+// axial:    (x=X-1-c, y=Y-1-r, z=k)      == fliplr(rot90): radiological, patient right on viewer left
+// coronal:  (x=X-1-c, y=k,     z=Z-1-r)  == fliplr(rot90): radiological
+// sagittal: (x=k,     y=Y-1-c, z=Z-1-r)  == fliplr(rot90): anterior left, spine right
 function renderBase(ax){
   const P=panes[ax]; if(!P||!V) return;
   const {vol,X,Y,Z}=V, XY=X*Y, k=idx[ax], [w,h]=sliceSize(ax);
@@ -422,7 +422,7 @@ function renderBase(ax){
   let p=0;
   for(let r=0;r<h;r++){
     let i, step;
-    if(ax==="axial"){ i=XY*k + X*(Y-1-r); step=1; }
+    if(ax==="axial"){ i=XY*k + X*(Y-1-r) + (X-1); step=-1; }
     else if(ax==="coronal"){ i=XY*(Z-1-r) + X*k + (X-1); step=-1; }
     else { i=XY*(Z-1-r) + X*(Y-1) + k; step=-X; }
     for(let c=0;c<w;c++,i+=step,p+=4){ const g=GRAY[vol[i]]; o[p]=g; o[p+1]=g; o[p+2]=g; o[p+3]=255; }
@@ -440,7 +440,7 @@ function renderMask(ax){
   let any=false;
   for(let r=0;r<h;r++) for(let c=0;c<w;c++){
     let x,y,z;
-    if(ax==="axial"){ x=c; y=Y-1-r; z=k; }
+    if(ax==="axial"){ x=X-1-c; y=Y-1-r; z=k; }
     else if(ax==="coronal"){ x=X-1-c; y=k; z=Z-1-r; }
     else { x=k; y=Y-1-c; z=Z-1-r; }
     if(x<x0||x>=x1||y<y0||y>=y1||z<z0||z>=z1) continue;
@@ -521,7 +521,7 @@ function onClickPane(ax,e){     // click sets the two in-plane coords -> jump th
   fx=clamp(fx,0,1); fy=clamp(fy,0,1);
   const X=dims.sagittal-1, Y=dims.coronal-1, Z=dims.axial-1;
   const setIdx=(a,val)=>{ val=clamp(Math.round(val),0,dims[a]-1); if(idx[a]!==val){idx[a]=val; panes[a].slider.value=val; scheduleRender(a);} };
-  if(ax==="axial"){ setIdx("sagittal",fx*X); setIdx("coronal",(1-fy)*Y); }
+  if(ax==="axial"){ setIdx("sagittal",(1-fx)*X); setIdx("coronal",(1-fy)*Y); }
   else if(ax==="coronal"){ setIdx("sagittal",(1-fx)*X); setIdx("axial",(1-fy)*Z); }
   else { setIdx("coronal",(1-fx)*Y); setIdx("axial",(1-fy)*Z); }
   positionAllCross();
@@ -552,7 +552,7 @@ function toggleOverlay(key){
 function crossFrac(ax){
   const X=dims.sagittal-1||1, Y=dims.coronal-1||1, Z=dims.axial-1||1;
   const x=idx.sagittal, y=idx.coronal, z=idx.axial;
-  if(ax==="axial")   return {fx:x/X,          fy:(Y-y)/Y};
+  if(ax==="axial")   return {fx:(X-x)/X,      fy:(Y-y)/Y};   // radiological: patient right on viewer left
   if(ax==="coronal") return {fx:(X-x)/X,      fy:(Z-z)/Z};
   return               {fx:(Y-y)/Y,          fy:(Z-z)/Z};   // sagittal
 }
@@ -583,7 +583,7 @@ function crossDragMove(e){
   const X=dims.sagittal-1, Y=dims.coronal-1, Z=dims.axial-1;
   let target,val;
   if(orient==="v"){                                   // vertical line -> in-plane horizontal coord
-    if(ax==="axial"){target="sagittal"; val=fx*X;}
+    if(ax==="axial"){target="sagittal"; val=(1-fx)*X;}
     else if(ax==="coronal"){target="sagittal"; val=(1-fx)*X;}
     else {target="coronal"; val=(1-fx)*Y;}
   }else{                                              // horizontal line -> in-plane vertical coord
