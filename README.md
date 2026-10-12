@@ -10,6 +10,11 @@ Each view shows axial, coronal and sagittal planes with the intended-lesion mask
 window/level, a magnifier, the conditioning impression, whether each detector found the
 lesion, and a radiologist's rating and description.
 
+The page adapts to the device on its own. On a phone (or any narrow window) it shows one plane
+at a time with Axial / Coronal / Sagittal tabs and a scan picker; with touch, swipe left or
+right on the image to move through slices, tap a point to recenter the other planes, and
+pinch to zoom.
+
 ## Viewing
 
 - **GitHub Pages:** *Settings → Pages → Build and deployment → Deploy from a branch*, select

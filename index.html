@@ -94,6 +94,66 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
   .det{background:#14432a;color:#7fe0a4} .miss{background:#4a1d1d;color:#f0a3a3}
   .impr{white-space:pre-wrap;font-size:13px;color:var(--ink)}
+
+  /* ---------- touch input + phone layout. A mouse-driven window wider than 820px matches none of the
+     media queries below, and touch-action only affects touch input, so the desktop demo is unchanged. ---------- */
+  .mpick,.vtabs,.stp,.monly,.touchkeys{display:none}
+  .stack{touch-action:pan-y pinch-zoom}      /* a horizontal swipe scrubs slices; a vertical one still scrolls the page */
+  .cx{touch-action:none}
+  @media (hover:none) and (pointer:coarse){  /* touch is the main input (phones, tablets): bigger targets, touch hints */
+    .keys.kbd,.magrow{display:none}
+    .touchkeys{display:flex}
+    .cx.v{width:27px;margin-left:-13.5px} .cx.h{height:27px;margin-top:-13.5px}
+    .marks{height:17px}
+    .mk{border-left-width:7px;border-right-width:7px;border-top-width:12px}
+    .mkbar{top:14px}
+    .slider input{height:30px}
+    .tog{padding:8px 12px;border:1px solid var(--edge);border-radius:8px}
+    .tog input{width:18px;height:18px}
+    .tog kbd{display:none}                   /* no keyboard, no shortcut hint */
+    button,select,label,.vol,.cf{touch-action:manipulation}
+  }
+  @media (max-width:820px), (max-height:520px) and (pointer:coarse){   /* phone layout: one view at a time */
+    header{padding:9px 12px} header h1{font-size:14px;line-height:1.3}
+    main{display:block;height:auto}
+    aside{border-right:0;border-bottom:1px solid var(--edge);overflow:visible;padding:10px 12px}
+    aside>.lbl,#tree{display:none}
+    .seg{margin-bottom:8px} .seg button{padding:10px;font-size:15px}
+    .mpick{display:flex;gap:8px}
+    .mpick select{flex:1;min-width:0;height:44px;padding:0 10px;font-size:16px;color:var(--ink);background:var(--bg);
+      border:1px solid var(--edge);border-radius:8px}
+    .mpick button,.stp,.monly{color:var(--ink);background:var(--bg);border:1px solid var(--edge);border-radius:8px;cursor:pointer;
+      -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+    .mpick button,.stp{flex:none;width:44px;height:44px;font-size:22px;line-height:1;padding:0}
+    section{overflow:visible;padding:10px 12px 28px}
+    .vtabs{display:flex;gap:6px;margin-bottom:8px}
+    .vtabs button{flex:1;height:40px;font-size:14px;color:var(--mut);background:transparent;border:1px solid var(--edge);
+      border-radius:8px;cursor:pointer;touch-action:manipulation}
+    .vtabs button.on{background:var(--accent);color:#08110f;border-color:transparent;font-weight:600}
+    .viewer{grid-template-columns:1fr;gap:0}
+    .pane{display:none} .pane.active{display:block;box-shadow:none}
+    .pane.active h4{color:var(--mut)} .pane.active h4::before{content:none}
+    .stack{aspect-ratio:auto;height:min(calc(100vw - 26px),calc(100vh - 200px));
+      height:min(calc(100vw - 26px),calc(100dvh - 200px));min-height:190px}
+    .cx{pointer-events:none}                 /* tap to recenter instead; a draggable line would swallow the slice swipe */
+    .slider{display:flex;align-items:center;gap:10px;padding:4px 9px 9px}
+    .slider input{flex:1;min-width:0;width:auto;height:34px}
+    .stp{display:block}
+    .marks{margin:8px 63px 0}                /* lines up with the slider between the two step buttons */
+    .monly{display:inline-flex;align-items:center;padding:8px 12px;font:inherit;font-size:13px}
+    .controls{margin-top:12px}
+    .toggles{gap:10px}
+    .viewctl{gap:10px 14px}
+    .viewctl label{flex:1 1 100%}
+    .viewctl label input[type=range]{flex:1;width:auto!important;min-width:0;height:30px}
+    .keys span{white-space:normal;flex-wrap:wrap}      /* long hints wrap instead of widening the page */
+    .info{grid-template-columns:1fr;gap:10px}
+    .impr{overflow-wrap:anywhere}
+    .loupe{display:none!important}
+  }
+  @media (max-height:520px) and (orientation:landscape) and (pointer:coarse){   /* phone held sideways: image + slider fill the screen */
+    .stack{height:calc(100vh - 112px);height:calc(100dvh - 112px);min-height:170px}
+  }
 </style>
 </head>
 <body>
@@ -108,13 +168,21 @@
     </div>
     <div class="lbl">Source volumes · counterfactuals</div>
     <div id="tree"></div>
+    <div class="mpick"><!-- phone layout: the tree above becomes a native picker -->
+      <button id="mPrev" aria-label="Previous scan">‹</button>
+      <select id="mSel" aria-label="Scan"></select>
+      <button id="mNext" aria-label="Next scan">›</button>
+    </div>
   </aside>
   <section>
+    <div class="vtabs" id="vtabs"><!-- phone layout: one view at a time -->
+      <button data-ax="axial">Axial</button><button data-ax="coronal">Coronal</button><button data-ax="sagittal">Sagittal</button>
+    </div>
     <div class="viewer" id="viewer"></div>
     <div class="controls">
       <div class="lbl">Legend &amp; controls</div>
       <div class="toggles" id="toggles"></div>
-      <div class="viewctl">
+      <div class="viewctl magrow">
         <label><input type="checkbox" id="magOn" checked> 🔍 Magnifier <kbd>Z</kbd></label>
         <label>Zoom <select id="magZoom"><option>2</option><option selected>3</option><option>4</option><option>6</option></select>×</label>
       </div>
@@ -124,12 +192,17 @@
         <label title="Window level (brightness)">Level <input id="wlL" type="range" min="-1000" max="1000" step="1" style="width:96px;vertical-align:middle"> <b id="wlLv" style="display:inline-block;min-width:34px"></b></label>
         <button id="wlReset" style="background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:5px;padding:2px 8px;cursor:pointer">reset</button>
       </div>
-      <div class="keys">
+      <div class="keys kbd">
         <span><kbd>↑</kbd><kbd>↓</kbd> or <kbd>Shift</kbd>+scroll — move through the <em>highlighted</em> view</span>
         <span><b>Click</b> a point to recenter all views</span>
         <span><b>Drag</b> a crosshair to reslice</span>
         <span><kbd>M</kbd> Mask</span>
         <span><kbd>Z</kbd> Magnifier</span>
+      </div>
+      <div class="keys touchkeys">
+        <span><b>Swipe</b> left or right on the image to move through slices</span>
+        <span><b>Tap</b> a point to recenter the other views</span>
+        <span><b>Pinch</b> to zoom</span>
       </div>
     </div>
     <div class="info" id="info"></div>
@@ -160,6 +233,11 @@ const WINDOW_DEFAULT = { PE:{w:700,l:100}, ICH:{w:80,l:40} };   // paper windows
 let winW=700, winL=100;                             // current window width / level (HU)
 const GRAY = new Uint8Array(256);                   // 8-bit code -> display gray for the current W/L
 let selToken=0;
+// The page adapts by itself (CSS media queries, no user-agent sniffing): a narrow or touch-first screen
+// gets the phone layout, and touch pointers get swipe / tap controls. TOUCH_MAIN only trims memory use.
+const TOUCH_MAIN = matchMedia("(hover:none) and (pointer:coarse)").matches;
+let touchUI=false;                                  // last pointer was a finger -> no hover magnifier
+let swipe=null, swipedAt=-1e9;                      // one-finger horizontal swipe on a pane = slice scrub
 
 async function boot(){
   try{
@@ -191,6 +269,14 @@ async function boot(){
   document.getElementById("wlL").oninput=onWindowInput;
   document.getElementById("wlReset").onclick=()=>{ const d=WINDOW_DEFAULT[disease]||WINDOW_DEFAULT.PE;
     setWindowVals(d.w,d.l); renderAll(); };
+  // phone layout: view tabs + native scan picker; touch: a finger has no hover, so no magnifier
+  document.querySelectorAll("#vtabs button").forEach(b=>b.onclick=()=>setActive(b.dataset.ax));
+  const ms=document.getElementById("mSel");
+  ms.onchange=()=>openScan(ms.value);
+  document.getElementById("mPrev").onclick=()=>stepScan(-1);
+  document.getElementById("mNext").onclick=()=>stepScan(1);
+  window.addEventListener("pointerdown",e=>{ touchUI=e.pointerType==="touch"; if(touchUI) hideLoupe(); },true);
+  window.addEventListener("pointermove",e=>{ if(e.pointerType==="mouse") touchUI=false; },true);
   // deep link: index.html#<scan id> (e.g. #ich2_cf1) opens that scan
   const want=decodeURIComponent(location.hash.slice(1));
   const hit=want && findRec(want);
@@ -213,6 +299,7 @@ function setDisease(d, openId){
 // ---------- sidebar tree ----------
 function renderTree(openId){
   const tree=document.getElementById("tree"); tree.innerHTML="";
+  const msel=document.getElementById("mSel"); msel.innerHTML="";      // phone picker mirrors the tree
   let target=null;
   MAN[disease].forEach((g,gi)=>{
     const node=document.createElement("div"); node.className="node";
@@ -220,7 +307,9 @@ function renderTree(openId){
     head.innerHTML=`<span class="caret">▶</span><span class="pid">${g.label}</span>`+
                    `<span class="cnt">${g.counterfactuals.length} CF</span>`;
     const kids=document.createElement("div"); kids.className="children";
-    const add=(r,el)=>{ el.onclick=e=>{e.stopPropagation(); selectScan(r,el);}; kids.appendChild(el);
+    const og=document.createElement("optgroup"); og.label=g.label; msel.appendChild(og);
+    const add=(r,el,text)=>{ el.onclick=e=>{e.stopPropagation(); selectScan(r,el);}; el.dataset.id=r.id; kids.appendChild(el);
+                        const o=document.createElement("option"); o.value=r.id; o.textContent=text; og.appendChild(o);
                         if(r.id===openId) target={node,head,el}; };
     g.counterfactuals.forEach(cf=>{
       const p=cf.intended_props||{};
@@ -228,12 +317,12 @@ function renderTree(openId){
                                   : `${(p.subtype||"")} · ${fmtVol(p)}`;
       const it=document.createElement("div"); it.className="cf";
       it.innerHTML=`${cf.label} <small>${desc}</small>`;
-      add(cf,it);
+      add(cf,it,`${cf.label} · ${desc}`);
     });
     if(g.no_lesion){
       const it=document.createElement("div"); it.className="cf neg";
       it.textContent="Synthetic — no lesion";
-      add(g.no_lesion,it);
+      add(g.no_lesion,it,"Synthetic, no lesion");
     }
     head.onclick=()=>{
       const wasOpen=node.classList.contains("open");
@@ -250,6 +339,19 @@ function renderTree(openId){
   const first=tree.querySelector(".cf"); first && first.click();
 }
 function fmtVol(p){ const v=p.volume_ml??p.ich_volume_ml; return v==null?"":(`${(+v).toFixed(1)} mL`); }
+// phone picker: open a scan by id through its tree entry, so tree and picker stay in sync
+function openScan(id){
+  const tree=document.getElementById("tree");
+  const el=[...tree.querySelectorAll(".cf")].find(x=>x.dataset.id===id); if(!el) return;
+  tree.querySelectorAll(".node").forEach(n=>n.classList.remove("open"));
+  tree.querySelectorAll(".vol").forEach(v=>v.classList.remove("open"));
+  const node=el.closest(".node"); node.classList.add("open"); node.querySelector(".vol").classList.add("open");
+  el.click();
+}
+function stepScan(d){
+  const s=document.getElementById("mSel"), i=clamp(s.selectedIndex+d, 0, s.options.length-1);
+  if(i!==s.selectedIndex){ s.selectedIndex=i; openScan(s.value); }
+}
 
 // ---------- scan selection ----------
 async function selectScan(rec,node){
@@ -257,6 +359,7 @@ async function selectScan(rec,node){
   scan=rec.id; meta=rec; V=null;
   document.querySelectorAll("#tree .cf").forEach(x=>x.classList.remove("on"));
   node.classList.add("on");
+  document.getElementById("mSel").value=rec.id;
   history.replaceState(null,"",`#${rec.id}`);
   dims = rec.dims;
   // Open ON the intended lesion (best_slice) so the lesion + mask are visible immediately.
@@ -290,7 +393,15 @@ function buildToggles(){
     t.appendChild(mkTog("intended","Intended-lesion mask","var(--intended)","M"));
     const mk=document.createElement("span"); mk.className="mkleg"; mk.innerHTML='<b>▲</b> lesion slices';
     t.appendChild(mk);
+    const go=document.createElement("button"); go.className="monly"; go.textContent="Go to lesion";   // phone layout only
+    go.onclick=gotoLesion; t.appendChild(go);
   }
+}
+function gotoLesion(){                       // back to the slices the scan opened on (centre of the intended lesion)
+  if(!meta) return; const bs=meta.best_slice||{};
+  AXES.forEach(a=>{ const v=bs[a]; if(!panes[a] || !Number.isFinite(v) || v<0 || v>=dims[a]) return;
+    idx[a]=v; panes[a].slider.value=v; scheduleRender(a); });
+  positionAllCross();
 }
 function mkTog(key,label,col,keyhint){
   const w=document.createElement("label"); w.className="tog"; w.dataset.key=key;
@@ -315,7 +426,7 @@ function loadVolume(rec,onProg){
   if(_vcache.has(rec.id)){ const p=_vcache.get(rec.id); _vcache.delete(rec.id); _vcache.set(rec.id,p); return p; }
   const p=_loadVolume(rec,onProg).catch(e=>{ _vcache.delete(rec.id); throw e; });
   _vcache.set(rec.id,p);
-  while(_vcache.size>2) _vcache.delete(_vcache.keys().next().value);
+  while(_vcache.size>(TOUCH_MAIN?1:2)) _vcache.delete(_vcache.keys().next().value);   // a decoded scan is 67-101 MB
   return p;
 }
 async function decodeSheet(url){
@@ -323,10 +434,12 @@ async function decodeSheet(url){
   const blob=await res.blob();
   let src;
   try{ src=await createImageBitmap(blob,{colorSpaceConversion:"none",premultiplyAlpha:"none"}); }
-  catch(_){ src=await new Promise((ok,bad)=>{ const im=new Image(); im.onload=()=>ok(im); im.onerror=bad; im.src=URL.createObjectURL(blob); }); }
+  catch(_){ src=await new Promise((ok,bad)=>{ const im=new Image(), u=URL.createObjectURL(blob);
+    im.onload=()=>{ URL.revokeObjectURL(u); ok(im); }; im.onerror=e=>{ URL.revokeObjectURL(u); bad(e); }; im.src=u; }); }
   const w=src.width, h=src.height, c=document.createElement("canvas"); c.width=w; c.height=h;
   const ctx=c.getContext("2d",{willReadFrequently:true}); ctx.drawImage(src,0,0);
   const d=ctx.getImageData(0,0,w,h).data; if(src.close) src.close();
+  c.width=c.height=0;                        // free the scratch canvas now (mobile Safari caps total canvas memory)
   return {d,w};
 }
 // copy tile t of a decoded sheet (grid g=[cols,rows], tile bx x by) into slice z of dst (x fastest)
@@ -357,7 +470,7 @@ async function _loadVolume(rec,onProg){
   }
   let done=0; const total=jobs.length, queue=jobs.slice();
   const worker=async()=>{ while(queue.length){ await queue.shift()(); onProg && onProg(++done/total); } };
-  await Promise.all([worker(),worker(),worker(),worker()]);
+  await Promise.all(TOUCH_MAIN ? [worker(),worker()] : [worker(),worker(),worker(),worker()]);
   return {vol,mask,mb,X,Y,Z};
 }
 
@@ -376,7 +489,7 @@ function buildViewer(){
     pane.innerHTML=`<h4>${ax}<span class="pos" id="pos-${ax}"></span></h4>
       <div class="stack" id="st-${ax}"></div>
       <div class="marks" id="mk-${ax}"></div>
-      <div class="slider"><input type="range" min="0" max="${n-1}" value="${idx[ax]}" id="sl-${ax}"></div>`;
+      <div class="slider"><button class="stp" data-d="-1" aria-label="Previous slice">‹</button><input type="range" min="0" max="${n-1}" value="${idx[ax]}" id="sl-${ax}"><button class="stp" data-d="1" aria-label="Next slice">›</button></div>`;
     v.appendChild(pane);
     const stack=pane.querySelector(".stack");
     const [w,h]=sliceSize(ax);
@@ -396,7 +509,31 @@ function buildViewer(){
     stack.addEventListener("wheel",e=>{ if(!e.shiftKey) return;
       e.preventDefault(); setActive(ax);
       idx[ax]=clamp(idx[ax]+(e.deltaY>0?1:-1),0,(dims[ax]||1)-1); slider.value=idx[ax]; onScroll(ax); },{passive:false});
-    stack.addEventListener("click",e=>{ setActive(ax); onClickPane(ax,e); });
+    stack.addEventListener("click",e=>{ if(performance.now()-swipedAt<500) return;   // the end of a swipe is not a tap
+      setActive(ax); onClickPane(ax,e); });
+    // touch: one-finger horizontal swipe scrubs this view (mouse pointers never enter this path)
+    stack.addEventListener("pointerdown",e=>{ if(e.pointerType!=="touch" || !e.isPrimary) return;
+      swipe={ax,id:e.pointerId,x0:e.clientX,i0:idx[ax],moved:false}; });
+    stack.addEventListener("pointermove",e=>{ if(!swipe || swipe.id!==e.pointerId || swipe.ax!==ax) return;
+      const dx=e.clientX-swipe.x0; if(!swipe.moved && Math.abs(dx)<8) return;
+      swipe.moved=true; setActive(ax);
+      const pxPer=clamp(stack.clientWidth/(n*0.6), 1.5, 10);          // a full-width swipe covers ~60% of the stack
+      const v=clamp(swipe.i0+Math.round(dx/pxPer), 0, n-1);
+      if(v!==idx[ax]){ idx[ax]=v; slider.value=v; onScroll(ax); } });
+    const endSwipe=e=>{ if(swipe && swipe.id===e.pointerId){ if(swipe.moved) swipedAt=performance.now(); swipe=null; } };
+    stack.addEventListener("pointerup",endSwipe); stack.addEventListener("pointercancel",endSwipe);
+    // phone layout: ‹ › step one slice, hold to keep stepping
+    pane.querySelectorAll(".stp").forEach(b=>{
+      const d=+b.dataset.d; let t=0, iv=0;
+      const stop=()=>{ clearTimeout(t); clearInterval(iv); t=iv=0; };
+      const step=()=>{ if(!panes[ax] || panes[ax].slider!==slider){ stop(); return; }    // viewer was rebuilt
+        idx[ax]=clamp(idx[ax]+d, 0, n-1); slider.value=idx[ax]; onScroll(ax); };
+      b.addEventListener("pointerdown",e=>{ e.preventDefault(); stop(); setActive(ax); step();
+        t=setTimeout(()=>{ iv=setInterval(step,60); },350); });
+      ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,stop));
+      b.addEventListener("click",e=>{ if(e.detail===0) step(); });    // keyboard activation
+      b.addEventListener("contextmenu",e=>e.preventDefault());
+    });
     stack.addEventListener("mouseenter",e=>{ setActive(ax); hover={ax,cx:e.clientX,cy:e.clientY}; });
     stack.addEventListener("mousemove",e=>drawLoupe(ax,e));
     stack.addEventListener("mouseleave",leaveLoupe);
@@ -406,8 +543,11 @@ function buildViewer(){
   positionAllCross();
 }
 function setActive(ax){
+  const changed=activeAxis!==ax;
   activeAxis=ax;
   AXES.forEach(a=>{ const P=panes[a]; if(P&&P.pane) P.pane.classList.toggle("active", a===ax); });
+  document.querySelectorAll("#vtabs button").forEach(b=>b.classList.toggle("on", b.dataset.ax===ax));
+  if(changed) positionAllCross();          // phone layout shows only the active pane, so its crosshair needs placing
 }
 function updatePos(ax){ const P=panes[ax]; if(P&&P.pos) P.pos.textContent=`${idx[ax]+1} / ${dims[ax]}`; }
 
@@ -468,7 +608,7 @@ function leaveLoupe(){ hover=null; hideLoupe(); }
 function refreshLoupe(){ if(loupePos) drawLoupeAt(loupePos.ax, loupePos.cx, loupePos.cy); }
 function showLoupeAtHover(){ if(hover) drawLoupeAt(hover.ax, hover.cx, hover.cy); }
 function drawLoupeAt(ax,cx,cy){
-  if(!document.getElementById("magOn").checked){ hideLoupe(); return; }
+  if(touchUI || !document.getElementById("magOn").checked){ hideLoupe(); return; }
   const P=panes[ax]; if(!P||!V) return; const base=P.base;
   const r=base.getBoundingClientRect();
   const fx=(cx-r.left)/r.width, fy=(cy-r.top)/r.height;
@@ -556,7 +696,22 @@ function crossFrac(ax){
   if(ax==="coronal") return {fx:(X-x)/X,      fy:(Z-z)/Z};
   return               {fx:(Y-y)/Y,          fy:(Z-z)/Z};   // sagittal
 }
+// phone layout: scale the visible view to fill its pane (large phones / tablets held upright would
+// otherwise show it at native pixel size with black margins). Wide layout: nothing is set.
+const NARROW = matchMedia("(max-width:820px), (max-height:520px) and (pointer:coarse)");
+function fitCanvases(){
+  AXES.forEach(ax=>{ const P=panes[ax]; if(!P) return;
+    let w="", h="";
+    if(NARROW.matches){
+      if(!P.stack.clientWidth) return;       // hidden pane: sized when its tab is opened
+      const s=Math.min(P.stack.clientWidth/P.base.width, P.stack.clientHeight/P.base.height);
+      w=Math.floor(P.base.width*s)+"px"; h=Math.floor(P.base.height*s)+"px";
+    }
+    [P.base, ...Object.values(P.ov)].forEach(c=>{ if(c.style.width!==w){ c.style.width=w; c.style.height=h; } });
+  });
+}
 function positionAllCross(){
+  fitCanvases();
   AXES.forEach(ax=>{
     const P=panes[ax]; if(!P) return;
     const r=P.base.getBoundingClientRect(), sr=P.stack.getBoundingClientRect();
@@ -572,7 +727,8 @@ function positionAllCross(){
 function startCrossDrag(ax,orient,e){
   e.preventDefault(); e.stopPropagation(); crossDrag={ax,orient}; hideLoupe();
   window.addEventListener("pointermove",crossDragMove);
-  window.addEventListener("pointerup",endCrossDrag,{once:true});
+  window.addEventListener("pointerup",endCrossDrag);
+  window.addEventListener("pointercancel",endCrossDrag);    // touch: the browser can take the gesture back
   crossDragMove(e);
 }
 function crossDragMove(e){
@@ -594,7 +750,8 @@ function crossDragMove(e){
   if(idx[target]!==val){ idx[target]=val; panes[target].slider.value=val; scheduleRender(target); }
   positionAllCross();
 }
-function endCrossDrag(){ crossDrag=null; window.removeEventListener("pointermove",crossDragMove); }
+function endCrossDrag(){ crossDrag=null; window.removeEventListener("pointermove",crossDragMove);
+  window.removeEventListener("pointerup",endCrossDrag); window.removeEventListener("pointercancel",endCrossDrag); }
 
 // ---------- info ----------
 function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
